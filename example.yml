@@ -1,0 +1,21 @@
+git_pull:
+  pwd: /home/$USER/myapp
+  command: git pull
+
+app:
+  hooks:
+    wait:
+      - git_pull
+  pwd: /home/$USER/myapp
+  command: bundle exec rails s
+  environment:
+    TOTO: yolo
+
+worker:
+  hooks:
+    wait: # wait for other processes before start
+      - git_pull
+    kill: # kill other processes on exit
+      - app
+  pwd: /home/$USER/myapp
+  command: bundle exec sidekiq -c config/sidekiq.yml

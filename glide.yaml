@@ -1,0 +1,10 @@
+package: github.com/mdouchement/composer
+import:
+- package: github.com/Sirupsen/logrus
+  version: v0.10.0
+- package: github.com/deckarep/golang-set
+  version: v1.5
+- package: github.com/x-cray/logrus-prefixed-formatter
+- package: gopkg.in/urfave/cli.v1
+  version: v1.18.1
+- package: gopkg.in/yaml.v2
