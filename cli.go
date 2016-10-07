@@ -53,6 +53,7 @@ func parseConfig(path string) *registry {
 	check(err)
 
 	reg := newRegistry()
+	go reg.statusToProfiler()
 	for name, p := range rps {
 		p.Name = name
 		p.Done = make(chan struct{})

@@ -39,12 +39,22 @@ var globalFlags = []cli.Flag{
 		Name:  "D, verbose",
 		Usage: "Increase logger level",
 	},
+	cli.StringFlag{
+		Name:  "P, profiler",
+		Usage: "Start profiler on the given port",
+	},
 }
 
 func beforeAction(context *cli.Context) error {
 	if context.Bool("D") || os.Getenv("APP_DEBUG") == "1" {
 		log.Level = logrus.DebugLevel
 	}
+
+	if port := context.String("profiler"); port != "" {
+		running = true
+		go RunProfiler("localhost", port)
+	}
+
 	return nil
 }
 

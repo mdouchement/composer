@@ -8,3 +8,4 @@ import:
 - package: gopkg.in/urfave/cli.v1
   version: v1.18.1
 - package: gopkg.in/yaml.v2
+- package: github.com/wblakecaldwell/profiler

@@ -2,6 +2,7 @@ package main
 
 import (
 	"sync"
+	"time"
 
 	"github.com/deckarep/golang-set"
 )
@@ -74,6 +75,22 @@ func (r *registry) status() map[string][]string {
 	}
 
 	return status
+}
+
+func (r *registry) statusToProfiler() {
+	if !running {
+		return
+	}
+
+	ticker := time.NewTicker(2 * time.Second)
+	for {
+		select {
+		case <-ticker.C:
+			for k, v := range r.status() {
+				UpdateExtra(k, len(v))
+			}
+		}
+	}
 }
 
 func (r *registry) isAllowedToBeKilled(name string) bool {

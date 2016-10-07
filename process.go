@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 	"os/exec"
 	"strings"
@@ -111,6 +112,9 @@ func (p *process) logStreams() {
 				return
 			default:
 				if scout.Scan() {
+					key := fmt.Sprintf("[INFO][count] %s", p.Name)
+					UpdateExtra(key, Int(key)+1)
+
 					lentries <- &lentry{
 						Name:     p.paddedName(),
 						Severity: INFO,
@@ -133,6 +137,9 @@ func (p *process) logStreams() {
 				return
 			default:
 				if scerr.Scan() {
+					key := fmt.Sprintf("[WARN][count] %s", p.Name)
+					UpdateExtra(key, Int(key)+1)
+
 					lentries <- &lentry{
 						Name:     p.paddedName(),
 						Severity: WARN,
