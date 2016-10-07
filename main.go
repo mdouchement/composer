@@ -5,16 +5,16 @@ import (
 	"time"
 
 	"github.com/Sirupsen/logrus"
-	prefixer "github.com/x-cray/logrus-prefixed-formatter"
 	"gopkg.in/urfave/cli.v1"
 )
 
-var log = logrus.New()
-var homedir string
+var (
+	log     = logrus.New()
+	homedir string
+)
 
 func init() {
 	var err error
-	log.Formatter = new(prefixer.TextFormatter)
 	homedir, err = os.Getwd()
 	check(err)
 }
