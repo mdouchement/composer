@@ -35,15 +35,19 @@ $ composer start -c ~/server-stack.yml
 - Basic
 
 ```yml
-app:
-  pwd: /home/$USER/myapp
-  command: bundle exec rails s
+risuto:
+  pwd: $GOPATH/src/github.com/mdouchement/risuto
+  command: go run risuto.go -p 5000 -b localhost
   environment:
-    RAILS_ENV: production
+    RISUTO_DATABASE: /tmp/data/tiedot_db
 
-worker:
-  pwd: /home/$USER/myapp
-  command: bundle exec sidekiq -c config/sidekiq.yml
+breizhtrip:
+  pwd: $GOPATH/src/github.com/mdouchement/breizhtrip-go
+  command: go run breizhtrip.go -p 5005 -b localhost
+
+machinery:
+  pwd: $GOPATH/src/github.com/mdouchement/machnery-app
+  command: go run app.go worker -c 5
 ```
 
 - Full options
