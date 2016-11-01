@@ -103,6 +103,7 @@ func (p *process) logStreams() {
 	check(err)
 
 	scout := bufio.NewScanner(stdout)
+	scout.Buffer(make([]byte, 4096), cfg.Logger.EntryMaxSize)
 	go func() {
 		for {
 			select {
@@ -125,6 +126,7 @@ func (p *process) logStreams() {
 	check(err)
 
 	scerr := bufio.NewScanner(stderr)
+	scerr.Buffer(make([]byte, 4096), cfg.Logger.EntryMaxSize)
 	go func() {
 		for {
 			select {
