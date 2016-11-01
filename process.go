@@ -111,7 +111,11 @@ func (p *process) logStreams() {
 				return
 			default:
 				if scout.Scan() {
-					log.WithField("prefix", p.paddedName()).Infof("%s", scout.Text())
+					lentries <- &lentry{
+						Name:     p.paddedName(),
+						Severity: INFO,
+						Message:  scout.Text(),
+					}
 				}
 			}
 		}
@@ -129,7 +133,11 @@ func (p *process) logStreams() {
 				return
 			default:
 				if scerr.Scan() {
-					log.WithField("prefix", p.paddedName()).Warnf("%s", scerr.Text())
+					lentries <- &lentry{
+						Name:     p.paddedName(),
+						Severity: WARN,
+						Message:  scerr.Text(),
+					}
 				}
 			}
 		}
