@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"io/ioutil"
 	"os"
 
@@ -35,6 +36,7 @@ func startAction(context *cli.Context) error {
 	}
 
 	registry := parseConfig(config)
+	startLogger()
 	perform(registry)
 
 	return nil
@@ -48,16 +50,46 @@ func parseConfig(path string) *registry {
 	data, err := ioutil.ReadAll(file)
 	check(err)
 
-	rps := make(map[string]*process)
-	err = yaml.Unmarshal(data, &rps)
+	raw := make(map[string]interface{})
+	err = yaml.Unmarshal(data, &raw)
 	check(err)
 
+	parseSettings(raw["settings"])
+
 	reg := newRegistry()
-	for name, p := range rps {
+	for name, p := range parseServices(raw["services"]) {
 		p.Name = name
 		p.Done = make(chan struct{})
 		reg.register(p)
 	}
 
 	return reg
+}
+
+func parseServices(value interface{}) map[string]*process {
+	services := make(map[string]*process)
+
+	raw, err := yaml.Marshal(value)
+	if err != nil {
+		fail(fmt.Sprintf("services marshalling: %s", err))
+	}
+
+	err = yaml.Unmarshal(raw, &services)
+	if err != nil {
+		fail(fmt.Sprintf("services unmarshalling: %s", err))
+	}
+
+	return services
+}
+
+func parseSettings(value interface{}) {
+	raw, err := yaml.Marshal(value)
+	if err != nil {
+		fail(fmt.Sprintf("settings marshalling: %s", err))
+	}
+
+	err = yaml.Unmarshal(raw, &cfg)
+	if err != nil {
+		fail(fmt.Sprintf("settings unmarshalling: %s", err))
+	}
 }

@@ -17,11 +17,11 @@ type lentry struct {
 
 var lentries chan *lentry
 
-func init() {
+func startLogger() {
 	log.Formatter = new(prefixer.TextFormatter)
 
 	// Processes logger initialization
-	lentries = make(chan *lentry, 142)
+	lentries = make(chan *lentry, cfg.Logger.BufferSize)
 	go func() {
 		for entry := range lentries {
 			switch entry.Severity {

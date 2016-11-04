@@ -4,7 +4,7 @@ Composer is CLI software for managing processes in development environment.
 
 ## Requirements
 
-- Golang 1.6.x
+- Golang 1.6.x/1.7.x
 
 ## Installation
 
@@ -12,7 +12,7 @@ Composer is CLI software for managing processes in development environment.
 
 ### Manual build
 
-1. Install Go 1.6
+1. Install Go 1.6 or 1.7
 2. Install Glide dependency manager
   - `GO15VENDOREXPERIMENT=1 go get -u github.com/Masterminds/glide`
 3. Clone this project
@@ -35,45 +35,52 @@ $ composer start -c ~/server-stack.yml
 - Basic
 
 ```yml
-risuto:
-  pwd: $GOPATH/src/github.com/mdouchement/risuto
-  command: go run risuto.go -p 5000 -b localhost
-  environment:
-    RISUTO_DATABASE: /tmp/data/tiedot_db
+services:
+  risuto:
+    pwd: $GOPATH/src/github.com/mdouchement/risuto
+    command: go run risuto.go -p 5000 -b localhost
+    environment:
+      RISUTO_DATABASE: /tmp/data/tiedot_db
 
-breizhtrip:
-  pwd: $GOPATH/src/github.com/mdouchement/breizhtrip-go
-  command: go run breizhtrip.go -p 5005 -b localhost
+  breizhtrip:
+    pwd: $GOPATH/src/github.com/mdouchement/breizhtrip-go
+    command: go run breizhtrip.go -p 5005 -b localhost
 
-machinery:
-  pwd: $GOPATH/src/github.com/mdouchement/machnery-app
-  command: go run app.go worker -c 5
+  machinery:
+    pwd: $GOPATH/src/github.com/mdouchement/machnery-app
+    command: go run app.go worker -c 5
 ```
 
 - Full options
 
 ```yml
-ggpull:
-  pwd: /home/$USER/myapp
-  command: git pull
+settings:
+  logger:
+    buffer_size: 142 # Queue size of entries to be logged.
+    entry_max_size: 865536 # Max length of an entry message. Default 65536 bytes.
 
-app:
-  hooks:
-    wait:
-      - ggpull
-  pwd: /home/$USER/myapp
-  command: bundle exec rails s
-  environment:
-    RAILS_ENV: production
+services:
+  ggpull:
+    pwd: /home/$USER/myapp
+    command: git pull
 
-worker:
-  hooks:
-    wait: # wait for other processes before start
-      - ggpull
-    kill: # kill other processes on exit
-      - app
-  pwd: /home/$USER/myapp
-  command: bundle exec sidekiq -c config/sidekiq.yml
+  app:
+    hooks:
+      wait:
+        - ggpull
+    pwd: /home/$USER/myapp
+    command: bundle exec rails s
+    environment:
+      RAILS_ENV: production
+
+  worker:
+    hooks:
+      wait: # wait for other processes before start
+        - ggpull
+      kill: # kill other processes on exit
+        - app
+    pwd: /home/$USER/myapp
+    command: bundle exec sidekiq -c config/sidekiq.yml
 ```
 
 ## License

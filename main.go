@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"os"
 	"time"
 
@@ -8,15 +9,34 @@ import (
 	"gopkg.in/urfave/cli.v1"
 )
 
+type (
+	configuration struct {
+		Logger logConfiguration `yaml:"logger"`
+	}
+
+	logConfiguration struct {
+		BufferSize   int `yaml:"buffer_size"`
+		EntryMaxSize int `yaml:"entry_max_size"`
+	}
+)
+
 var (
 	log     = logrus.New()
 	homedir string
+	cfg     configuration
 )
 
 func init() {
 	var err error
 	homedir, err = os.Getwd()
 	check(err)
+
+	cfg = configuration{
+		Logger: logConfiguration{
+			BufferSize:   42,
+			EntryMaxSize: bufio.MaxScanTokenSize,
+		},
+	}
 }
 
 func main() {
@@ -53,6 +73,7 @@ func check(err error) {
 		fail(err.Error())
 	}
 }
+
 func fail(err string) {
 	log.Error(err)
 	time.Sleep(100 * time.Millisecond) // Wait logger outputing

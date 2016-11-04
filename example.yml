@@ -1,21 +1,27 @@
-git_pull:
-  pwd: /home/$USER/myapp
-  command: git pull
+settings:
+  logger:
+    buffer_size: 142 # Queue size of entries to be logged.
+    entry_max_size: 865536 # Max length of an entry message. Default 65536 bytes.
 
-app:
-  hooks:
-    wait:
-      - git_pull
-  pwd: /home/$USER/myapp
-  command: bundle exec rails s
-  environment:
-    TOTO: yolo
+services:
+  git_pull:
+    pwd: /home/$USER/myapp
+    command: git pull
 
-worker:
-  hooks:
-    wait: # wait for other processes before start
-      - git_pull
-    kill: # kill other processes on exit
-      - app
-  pwd: /home/$USER/myapp
-  command: bundle exec sidekiq -c config/sidekiq.yml
+  app:
+    hooks:
+      wait:
+        - git_pull
+    pwd: /home/$USER/myapp
+    command: bundle exec rails s
+    environment:
+      TOTO: yolo
+
+  worker:
+    hooks:
+      wait: # wait for other processes before start
+        - git_pull
+      kill: # kill other processes on exit
+        - app
+    pwd: /home/$USER/myapp
+    command: bundle exec sidekiq -c config/sidekiq.yml
