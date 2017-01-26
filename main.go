@@ -42,7 +42,7 @@ func init() {
 func main() {
 	app := cli.NewApp()
 	app.Name = "Composer - MIT"
-	app.Version = "0.2.0"
+	app.Version = "0.3.0"
 	app.Author = "mdouchement"
 	app.Usage = "Usage:"
 	app.Flags = globalFlags
