@@ -72,7 +72,7 @@ func (p *process) cleanCommand() {
 
 func (p *process) setEnvironment() {
 	for k, v := range p.Environment {
-		err := os.Setenv(k, v)
+		err := os.Setenv(k, os.ExpandEnv(v))
 		check(err)
 	}
 }
