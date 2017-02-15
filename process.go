@@ -2,21 +2,25 @@ package main
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 )
 
 type process struct {
-	Name        string
-	Hooks       map[string][]string `yaml:"hooks"`
-	Pwd         string              `yaml:"pwd"`
-	Command     string              `yaml:"command"`
-	Environment map[string]string   `yaml:"environment"`
-	cmd         *exec.Cmd
-	Padding     int
-	Done        chan struct{}
+	Name           string
+	Hooks          map[string][]string `yaml:"hooks"`
+	Pwd            string              `yaml:"pwd"`
+	Command        string              `yaml:"command"`
+	Environment    map[string]string   `yaml:"environment"`
+	LogTrimPattern string              `yaml:"log_trim_pattern"`
+	logTrimPattern *regexp.Regexp
+	cmd            *exec.Cmd
+	Padding        int
+	Done           chan struct{}
 }
 
 // TODO: try to block without using loop + sleep
@@ -38,6 +42,13 @@ func (p *process) update(status map[string][]string) {
 }
 
 func (p *process) run() error {
+	if p.LogTrimPattern != "" {
+		var err error
+		if p.logTrimPattern, err = regexp.Compile(p.LogTrimPattern); err != nil {
+			return err
+		}
+	}
+
 	p.setEnvironment()
 	p.cleanCommand()
 
@@ -115,7 +126,7 @@ func (p *process) logStreams() {
 					lentries <- &lentry{
 						Name:     p.paddedName(),
 						Severity: INFO,
-						Message:  scout.Text(),
+						Message:  p.extractMessage(scout.Text()),
 					}
 				}
 			}
@@ -138,10 +149,23 @@ func (p *process) logStreams() {
 					lentries <- &lentry{
 						Name:     p.paddedName(),
 						Severity: WARN,
-						Message:  scerr.Text(),
+						Message:  p.extractMessage(scerr.Text()),
 					}
 				}
 			}
 		}
 	}()
+}
+
+func (p *process) extractMessage(msg string) string {
+	if p.logTrimPattern != nil {
+		match := p.logTrimPattern.FindStringSubmatch(msg)
+		if len(match) > 1 {
+			m := MatcherLookup(match, p.logTrimPattern)
+			msg = m["message"]
+		} else {
+			msg = fmt.Sprintf("[!] %s", msg)
+		}
+	}
+	return msg
 }

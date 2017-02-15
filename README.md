@@ -70,6 +70,7 @@ services:
         - ggpull
     pwd: /home/$USER/myapp
     command: bundle exec rails s
+    log_trim_pattern: '\[.*\] \w+  (?P<message>.*)'
     environment:
       RAILS_ENV: production
 
@@ -81,6 +82,29 @@ services:
         - app
     pwd: /home/$USER/myapp
     command: bundle exec sidekiq -c config/sidekiq.yml
+```
+
+### Trim logs
+
+Outputed logs can be trimed to remove useless data like timestamp. This option is based on the Golang's [regexp](https://golang.org/pkg/regexp/) package and you can test your regexp with the following website [Regex Tester - Golang](https://regex-golang.appspot.com/assets/html/index.html).
+
+The captured group must be named `message` like the following example:
+
+```
+log_trim_pattern: '\[.*\] \w+  (?P<message>.*)'
+```
+
+The result is the following:
+
+```
+# Without trim:
+[Feb 13 10:38:09]  INFO my_app: [2017-02-13 10:38:09] INFO  WEBrick 1.3.1
+
+# With trim:
+[Feb 13 10:38:09]  INFO my_app: WEBrick 1.3.1
+
+# When the trim regexp does not match, the message is prefixed with `[!]`
+[Feb 13 10:38:09]  INFO my_app: [!] => Booting WEBrick
 ```
 
 ## License

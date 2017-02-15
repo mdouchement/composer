@@ -14,6 +14,7 @@ services:
         - git_pull
     pwd: /home/$USER/myapp
     command: bundle exec rails s
+    log_trim_pattern: '\[.*\] \w+  (?P<message>.*)'
     environment:
       TOTO: yolo
 
