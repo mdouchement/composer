@@ -75,6 +75,7 @@ services:
       RAILS_ENV: production
 
   worker:
+    ignore_error: true # Do not stop other services on error
     hooks:
       wait: # wait for other processes before start
         - ggpull

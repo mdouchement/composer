@@ -24,7 +24,7 @@ func perform(reg *registry) {
 			p.wait()
 			reg.updateStatus(p, "running")
 			err := p.run()
-			if err != nil && !(err.Error() == "signal: killed" && reg.isAllowedToBeKilled(p.Name)) {
+			if !p.IgnoreError && err != nil && !(err.Error() == "signal: killed" && reg.isAllowedToBeKilled(p.Name)) {
 				errors <- err
 			}
 			close(p.Done)
@@ -38,7 +38,7 @@ func perform(reg *registry) {
 func handleErrors(reg *registry) {
 	for err := range errors {
 		if err != nil {
-			log.WithField("prefix", "processor").Errorf("%#v", err)
+			log.WithField("prefix", "processor").Errorf("%s ; %#v", err.Error(), err)
 			for _, p := range reg.runningProcesses() {
 				kill(reg, p)
 			}

@@ -1,0 +1,23 @@
+project_name: composer
+release:
+  github:
+    owner: mdouchement
+    name: composer
+builds:
+- goos:
+  - linux
+  - darwin
+  - windows
+  goarch:
+  - amd64
+  - "386"
+  main: *.go
+  ldflags: -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+  binary: composer
+snapshot:
+  name_template: 'SNAPSHOT-{{ printf "%.7s" .Commit }}'
+archive:
+  files:
+    - example.yml
+    - LICENSE
+    - README.md
