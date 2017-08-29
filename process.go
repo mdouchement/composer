@@ -17,6 +17,7 @@ type process struct {
 	Command        string              `yaml:"command"`
 	Environment    map[string]string   `yaml:"environment"`
 	LogTrimPattern string              `yaml:"log_trim_pattern"`
+	IgnoreError    bool                `yaml:"ignore_error"`
 	logTrimPattern *regexp.Regexp
 	cmd            *exec.Cmd
 	Padding        int
