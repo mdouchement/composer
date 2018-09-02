@@ -1,4 +1,6 @@
 vendor
 composer-*
+composer
 dist/
 .envrc
+**.DS_Store
