@@ -4,7 +4,7 @@ Composer is CLI software for managing processes in development environment.
 
 ## Requirements
 
-- Golang 1.6.x/1.7.x
+- Golang 1.6.x
 
 ## Installation
 
@@ -12,13 +12,13 @@ Composer is CLI software for managing processes in development environment.
 
 ### Manual build
 
-1. Install Go 1.6 or 1.7
-2. Install Glide dependency manager
-  - `GO15VENDOREXPERIMENT=1 go get -u github.com/Masterminds/glide`
+1. Install Go 1.6+
+2. Install Golang's dependency manager
+  - `curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh`
 3. Clone this project
   - `git clone https://github.com/mdouchement/composer`
 4. Fetch dependencies
-  - `glide install`
+  - `dep ensure`
 5. Build the binary
   - `go build -o composer *.go`
 6. Install the compiled binary
