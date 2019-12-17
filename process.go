@@ -27,6 +27,8 @@ type process struct {
 	Padding        int
 	Cancel         context.CancelFunc
 	Done           chan struct{}
+
+	homedir string
 }
 
 // TODO: try to block without using loop + sleep
@@ -73,10 +75,18 @@ func (p *process) run() error {
 
 	//
 
-	workdir := interp.Dir(homedir)
+	workdir := p.homedir
 	if p.Pwd != "" {
-		workdir = interp.Dir(p.Pwd)
+		workdir = p.Pwd
 	}
+
+	workdir = os.Expand(workdir, func(k string) string {
+		if e, ok := p.Environment[k]; ok {
+			return e
+		}
+		return fmt.Sprintf("${%s}", k)
+	})
+	workdir = os.ExpandEnv(workdir)
 
 	//
 
@@ -89,7 +99,7 @@ func (p *process) run() error {
 	//
 
 	shell, err := interp.New(
-		workdir,
+		interp.Dir(workdir),
 		interp.Env(expand.ListEnviron(environ...)),
 
 		interp.OpenHandler(func(ctx context.Context, path string, flag int, perm os.FileMode) (io.ReadWriteCloser, error) {
@@ -119,7 +129,7 @@ func (p *process) stop() {
 	// TODO: An inconsistency window can occur between existence check and kill action
 	if p.Cancel != nil {
 		p.Cancel()
-		log.WithField("prefix", p.paddedName()).Warn("stopped by Composer")
+		p.Logger.WithField("prefix", p.paddedName()).Warn("stopped by Composer")
 	}
 }
 
@@ -131,57 +141,4 @@ func (p *process) paddedName() string {
 		}
 		name = " " + name
 	}
-}
-
-// ----------------
-// -------------
-// Logging
-// -----
-// ---
-
-type logger struct {
-	w    io.Writer
-	trim *nregexp.NRegexp
-}
-
-func (l *logger) Write(p []byte) (int, error) {
-	p = l.extractMessage(p)
-	return l.w.Write(p)
-}
-
-func (l *logger) extractMessage(msg []byte) []byte {
-	if l.trim != nil {
-		match := l.trim.NamedCapture(msg)
-		if m, ok := match["message"]; ok {
-			return m
-		}
-
-		return append([]byte("[!] "), msg...)
-	}
-
-	return msg
-}
-
-// ----------------
-// -------------
-// /dev/null
-// -----
-// ---
-
-// https://github.com/go-task/task/blob/master/internal/execext/devnull.go
-
-var _ io.ReadWriteCloser = devNull{}
-
-type devNull struct{}
-
-func (devNull) Read(p []byte) (int, error) {
-	return 0, io.EOF
-}
-
-func (devNull) Write(p []byte) (int, error) {
-	return len(p), nil
-}
-
-func (devNull) Close() error {
-	return nil
 }

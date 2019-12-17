@@ -3,7 +3,8 @@ package main
 import (
 	"sync"
 
-	"github.com/deckarep/golang-set"
+	mapset "github.com/deckarep/golang-set"
+	"github.com/sirupsen/logrus"
 )
 
 type registry struct {
@@ -13,6 +14,8 @@ type registry struct {
 	running       map[string]*process
 	stopped       map[string]*process
 	licenseToKill mapset.Set
+
+	log *logrus.Logger
 }
 
 func newRegistry() *registry {
@@ -46,12 +49,12 @@ func (r *registry) updateStatus(p *process, status string) {
 		delete(r.running, p.Name)
 		r.stopped[p.Name] = p
 	default:
-		fail("Unsupported status")
+		panic("Unsupported status") // Should never occur
 	}
 	r.Unlock()
 
 	r.publish(r.status())
-	log.WithField("prefix", "registry").Debug(r.status())
+	r.log.WithField("prefix", "registry").Debug(r.status())
 }
 
 func (r *registry) status() map[string][]string {
@@ -93,7 +96,7 @@ func (r *registry) getProcess(name string) (*process, string) {
 	} else if p, ok := r.stopped[name]; ok {
 		return p, "stopped"
 	}
-	panic("WTF? Unknown process!")
+	panic("WTF?! Unknown process!")
 }
 
 func (r *registry) processes() []*process {

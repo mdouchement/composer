@@ -1,29 +1,39 @@
 package main
 
 import (
-	"fmt"
+	"bufio"
 	"io/ioutil"
 	"os"
 	"os/signal"
 
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v2"
 )
 
-func init() {
-	command.Flags().StringVarP(&config, "config", "c", "", "Configuration file")
-}
+func command(log *logrus.Logger, homedir string) *cobra.Command {
+	var config string
+	parser := &parser{
+		log:     log,
+		homedir: homedir,
+	}
 
-var (
-	command = &cobra.Command{
+	command := &cobra.Command{
 		Use:   "start",
 		Short: "Start all processes",
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) (err error) {
-			registry, err := parseConfig(config)
+			registry, err := parser.parseConfig(config)
 			if err != nil {
 				return err
+			}
+
+			runner := &processor{
+				log:       log,
+				reg:       registry,
+				terminate: make(chan []string, len(registry.processes())),
+				errors:    make(chan error, len(registry.processes())),
 			}
 
 			//
@@ -34,26 +44,34 @@ var (
 				<-signals
 				log.Info("Gracefully shutdown composer")
 
-				processes := registry.processes()
-				names := make([]string, len(processes))
-				for i, process := range processes {
-					names[i] = process.Name
+				runner.termination = true
+				for _, process := range registry.processes() {
+					runner.stop(process)
 				}
-
-				stopAllGivenNames(registry, names)
 			}()
 
 			//
 
-			perform(registry)
-			return nil
+			return runner.perform()
 		},
 	}
+	command.Flags().StringVarP(&config, "config", "c", "", "Configuration file")
 
-	config string
-)
+	return command
+}
 
-func parseConfig(path string) (*registry, error) {
+// ----------------
+// -------------
+// Config
+// -----
+// ---
+
+type parser struct {
+	log     *logrus.Logger
+	homedir string
+}
+
+func (ps *parser) parseConfig(path string) (*registry, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -71,43 +89,56 @@ func parseConfig(path string) (*registry, error) {
 		return nil, err
 	}
 
-	parseSettings(raw["settings"])
+	// No longer used for the moment
+	//
+	// cfg, err := ps.parseSettings(raw["settings"])
+	// if err != nil {
+	// 	return nil, err
+	// }
 
 	reg := newRegistry()
-	for name, p := range parseServices(raw["services"]) {
+	reg.log = ps.log
+	services, err := ps.parseServices(raw["services"])
+	if err != nil {
+		return nil, err
+	}
+
+	for name, p := range services {
 		p.Name = name
 		p.Done = make(chan struct{})
-		p.Logger = logrus.NewEntry(log)
+		p.Logger = logrus.NewEntry(ps.log)
+		p.homedir = ps.homedir
 		reg.register(p)
 	}
 
 	return reg, nil
 }
 
-func parseServices(value interface{}) map[string]*process {
-	services := make(map[string]*process)
-
+func (ps *parser) parseSettings(value interface{}) (*configuration, error) {
 	raw, err := yaml.Marshal(value)
 	if err != nil {
-		fail(fmt.Sprintf("services marshalling: %s", err))
+		return nil, errors.Wrap(err, "could not serialize settings")
 	}
 
-	err = yaml.Unmarshal(raw, &services)
-	if err != nil {
-		fail(fmt.Sprintf("services unmarshalling: %s", err))
-	}
-
-	return services
-}
-
-func parseSettings(value interface{}) {
-	raw, err := yaml.Marshal(value)
-	if err != nil {
-		fail(fmt.Sprintf("settings marshalling: %s", err))
+	// defaults
+	cfg := configuration{
+		Logger: logConfiguration{
+			BufferSize:   42,
+			EntryMaxSize: bufio.MaxScanTokenSize,
+		},
 	}
 
 	err = yaml.Unmarshal(raw, &cfg)
+	return &cfg, errors.Wrap(err, "could not parse settings")
+}
+
+func (ps *parser) parseServices(value interface{}) (map[string]*process, error) {
+	raw, err := yaml.Marshal(value)
 	if err != nil {
-		fail(fmt.Sprintf("settings unmarshalling: %s", err))
+		return nil, errors.Wrap(err, "could not serialize services")
 	}
+
+	services := make(map[string]*process)
+	err = yaml.Unmarshal(raw, &services)
+	return services, errors.Wrap(err, "could not parse services")
 }

@@ -28,6 +28,8 @@ $ composer start -c ~/server-stack.yml
 
 ## Configuration file
 
+`command` is interpreted as shell script.
+
 - Basic
 
 ```yml
@@ -45,6 +47,14 @@ services:
   machinery:
     pwd: $GOPATH/src/github.com/mdouchement/machnery-app
     command: go run app.go worker -c 5
+
+  machinery:
+    pwd: /tmp
+    command: |
+      for i in 0 1 2 3 4 5 6 7 8 9
+      do
+        echo "Hello $i times"
+      done 
 ```
 
 - Full options
