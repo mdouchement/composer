@@ -4,55 +4,72 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"os/signal"
 
-	"gopkg.in/urfave/cli.v1"
+	"github.com/sirupsen/logrus"
+	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v2"
 )
 
-func commands(app *cli.App) {
-	app.Commands = []cli.Command{
-		startCommand,
+func init() {
+	command.Flags().StringVarP(&config, "config", "c", "", "Configuration file")
+}
+
+var (
+	command = &cobra.Command{
+		Use:   "start",
+		Short: "Start all processes",
+		Args:  cobra.NoArgs,
+		RunE: func(c *cobra.Command, _ []string) (err error) {
+			registry, err := parseConfig(config)
+			if err != nil {
+				return err
+			}
+
+			//
+
+			signals := make(chan os.Signal, 1)
+			signal.Notify(signals, os.Interrupt)
+			go func() {
+				<-signals
+				log.Info("Gracefully shutdown composer")
+
+				processes := registry.processes()
+				names := make([]string, len(processes))
+				for i, process := range processes {
+					names[i] = process.Name
+				}
+
+				stopAllGivenNames(registry, names)
+			}()
+
+			//
+
+			perform(registry)
+			return nil
+		},
 	}
-}
 
-var startCommand = cli.Command{
-	Name:   "start",
-	Usage:  "Start all processes",
-	Action: startAction,
-	Flags:  startFlags,
-}
+	config string
+)
 
-var startFlags = []cli.Flag{
-	cli.StringFlag{
-		Name:  "c, config",
-		Usage: "Path to the configuration file",
-	},
-}
-
-func startAction(context *cli.Context) error {
-	config := context.String("c")
-	if config == "" {
-		fail("Need configuration file: `-c` option")
-	}
-
-	registry := parseConfig(config)
-	startLogger()
-	perform(registry)
-
-	return nil
-}
-
-func parseConfig(path string) *registry {
+func parseConfig(path string) (*registry, error) {
 	file, err := os.Open(path)
-	check(err)
+	if err != nil {
+		return nil, err
+	}
 	defer file.Close()
 
 	data, err := ioutil.ReadAll(file)
-	check(err)
+	if err != nil {
+		return nil, err
+	}
 
 	raw := make(map[string]interface{})
 	err = yaml.Unmarshal(data, &raw)
-	check(err)
+	if err != nil {
+		return nil, err
+	}
 
 	parseSettings(raw["settings"])
 
@@ -60,10 +77,11 @@ func parseConfig(path string) *registry {
 	for name, p := range parseServices(raw["services"]) {
 		p.Name = name
 		p.Done = make(chan struct{})
+		p.Logger = logrus.NewEntry(log)
 		reg.register(p)
 	}
 
-	return reg
+	return reg, nil
 }
 
 func parseServices(value interface{}) map[string]*process {

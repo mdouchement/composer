@@ -1,13 +1,18 @@
 package main
 
 import (
-	"bufio"
+	"context"
 	"fmt"
+	"io"
 	"os"
-	"os/exec"
-	"regexp"
 	"strings"
 	"time"
+
+	"github.com/mdouchement/nregexp"
+	"github.com/sirupsen/logrus"
+	"mvdan.cc/sh/v3/expand"
+	"mvdan.cc/sh/v3/interp"
+	"mvdan.cc/sh/v3/syntax"
 )
 
 type process struct {
@@ -16,11 +21,11 @@ type process struct {
 	Pwd            string              `yaml:"pwd"`
 	Command        string              `yaml:"command"`
 	Environment    map[string]string   `yaml:"environment"`
-	LogTrimPattern string              `yaml:"log_trim_pattern"`
-	IgnoreError    bool                `yaml:"ignore_error"`
-	logTrimPattern *regexp.Regexp
-	cmd            *exec.Cmd
+	Logger         *logrus.Entry
+	LogTrimPattern string `yaml:"log_trim_pattern"`
+	IgnoreError    bool   `yaml:"ignore_error"`
 	Padding        int
+	Cancel         context.CancelFunc
 	Done           chan struct{}
 }
 
@@ -43,62 +48,80 @@ func (p *process) update(status map[string][]string) {
 }
 
 func (p *process) run() error {
-	if p.LogTrimPattern != "" {
-		var err error
-		if p.logTrimPattern, err = regexp.Compile(p.LogTrimPattern); err != nil {
-			return err
-		}
+	logout := &logger{
+		w: p.Logger.WithField("prefix", p.paddedName()).WriterLevel(logrus.InfoLevel),
+	}
+	logerr := &logger{
+		w: p.Logger.WithField("prefix", p.paddedName()).WriterLevel(logrus.WarnLevel),
 	}
 
-	p.setEnvironment()
-	p.cleanCommand()
+	if p.LogTrimPattern != "" {
+		trim, err := nregexp.Compile(p.LogTrimPattern)
+		if err != nil {
+			return err
+		}
+		logout.trim = trim
+		logerr.trim = trim
+	}
 
-	args := strings.Split(p.Command, " ")
-	p.cmd = exec.Command(args[0], args[1:]...)
+	//
 
-	p.setWorkdir()
-	p.logStreams()
+	environ := os.Environ()
+	for k, v := range p.Environment {
+		environ = append(environ, fmt.Sprintf("%s=%s", k, v))
+	}
 
-	return p.cmd.Run()
+	//
+
+	workdir := interp.Dir(homedir)
+	if p.Pwd != "" {
+		workdir = interp.Dir(p.Pwd)
+	}
+
+	//
+
+	command, err := syntax.NewParser().Parse(strings.NewReader(p.Command), "")
+	if err != nil {
+		return err
+	}
+
+	//
+	//
+
+	shell, err := interp.New(
+		workdir,
+		interp.Env(expand.ListEnviron(environ...)),
+
+		interp.OpenHandler(func(ctx context.Context, path string, flag int, perm os.FileMode) (io.ReadWriteCloser, error) {
+			if path == "/dev/null" {
+				return devNull{}, nil
+			}
+			return interp.DefaultOpenHandler()(ctx, path, flag, perm)
+		}),
+
+		interp.StdIO(os.Stdin, logout, logerr),
+	)
+	if err != nil {
+		return err
+	}
+
+	ctx := context.Background()
+	ctx, p.Cancel = context.WithCancel(ctx)
+	return shell.Run(ctx, command)
 }
 
 func (p *process) wantedDeadOrDead() []string {
 	return p.Hooks["kill"]
 }
 
-// kill terminates the underlying process wethwer it is started
-func (p *process) kill() {
+// stop terminates the underlying process whether it is started
+func (p *process) stop() {
 	// TODO: An inconsistency window can occur between existence check and kill action
-	if p.cmd.Process != nil {
-		p.cmd.Process.Kill()
+	if p.Cancel != nil {
+		p.Cancel()
 		log.WithField("prefix", p.paddedName()).Warn("stopped by Composer")
 	}
 }
-
-// Command preparation
-// -------------------
-
-func (p *process) cleanCommand() {
-	p.Command = os.ExpandEnv(p.Command)
-}
-
-func (p *process) setEnvironment() {
-	for k, v := range p.Environment {
-		err := os.Setenv(k, os.ExpandEnv(v))
-		check(err)
-	}
-}
-
-func (p *process) setWorkdir() {
-	if p.Pwd != "" {
-		p.cmd.Dir = p.Pwd
-	} else {
-		p.cmd.Dir = homedir
-	}
-}
-
-// Logging
-// -------
 
 func (p *process) paddedName() string {
 	name := p.Name
@@ -110,63 +133,55 @@ func (p *process) paddedName() string {
 	}
 }
 
-func (p *process) logStreams() {
-	stdout, err := p.cmd.StdoutPipe()
-	check(err)
+// ----------------
+// -------------
+// Logging
+// -----
+// ---
 
-	scout := bufio.NewScanner(stdout)
-	scout.Buffer(make([]byte, 4096), cfg.Logger.EntryMaxSize)
-	go func() {
-		for {
-			select {
-			case <-p.Done:
-				log.WithField("prefix", p.paddedName()).Debug("Stop logging")
-				return
-			default:
-				if scout.Scan() {
-					lentries <- &lentry{
-						Name:     p.paddedName(),
-						Severity: INFO,
-						Message:  p.extractMessage(scout.Text()),
-					}
-				}
-			}
-		}
-	}()
-
-	stderr, err := p.cmd.StderrPipe()
-	check(err)
-
-	scerr := bufio.NewScanner(stderr)
-	scerr.Buffer(make([]byte, 4096), cfg.Logger.EntryMaxSize)
-	go func() {
-		for {
-			select {
-			case <-p.Done:
-				log.WithField("prefix", p.paddedName()).Debug("Stop logging")
-				return
-			default:
-				if scerr.Scan() {
-					lentries <- &lentry{
-						Name:     p.paddedName(),
-						Severity: WARN,
-						Message:  p.extractMessage(scerr.Text()),
-					}
-				}
-			}
-		}
-	}()
+type logger struct {
+	w    io.Writer
+	trim *nregexp.NRegexp
 }
 
-func (p *process) extractMessage(msg string) string {
-	if p.logTrimPattern != nil {
-		match := p.logTrimPattern.FindStringSubmatch(msg)
-		if len(match) > 1 {
-			m := MatcherLookup(match, p.logTrimPattern)
-			msg = m["message"]
-		} else {
-			msg = fmt.Sprintf("[!] %s", msg)
+func (l *logger) Write(p []byte) (int, error) {
+	p = l.extractMessage(p)
+	return l.w.Write(p)
+}
+
+func (l *logger) extractMessage(msg []byte) []byte {
+	if l.trim != nil {
+		match := l.trim.NamedCapture(msg)
+		if m, ok := match["message"]; ok {
+			return m
 		}
+
+		return append([]byte("[!] "), msg...)
 	}
+
 	return msg
+}
+
+// ----------------
+// -------------
+// /dev/null
+// -----
+// ---
+
+// https://github.com/go-task/task/blob/master/internal/execext/devnull.go
+
+var _ io.ReadWriteCloser = devNull{}
+
+type devNull struct{}
+
+func (devNull) Read(p []byte) (int, error) {
+	return 0, io.EOF
+}
+
+func (devNull) Write(p []byte) (int, error) {
+	return len(p), nil
+}
+
+func (devNull) Close() error {
+	return nil
 }

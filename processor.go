@@ -4,8 +4,10 @@ import (
 	"sync"
 )
 
-var errors chan error
-var terminate chan []string
+var (
+	errors    chan error
+	terminate chan []string
+)
 
 func perform(reg *registry) {
 	padding := getPadding(reg)
@@ -40,7 +42,7 @@ func handleErrors(reg *registry) {
 		if err != nil {
 			log.WithField("prefix", "processor").Errorf("%s ; %#v", err.Error(), err)
 			for _, p := range reg.runningProcesses() {
-				kill(reg, p)
+				stop(reg, p)
 			}
 			fail(err.Error())
 		}
@@ -48,27 +50,28 @@ func handleErrors(reg *registry) {
 }
 
 func terminator(reg *registry) {
-	for {
-		select {
-		case names := <-terminate:
-			for _, name := range names {
-				log.WithField("prefix", "processor").Warn(name)
-				p, status := reg.getProcess(name)
-				switch status {
-				case "ready":
-					reg.updateStatus(p, "stopped")
-				case "running":
-					kill(reg, p)
-				case "stopped":
-					// nothing to do here
-				}
-			}
+	for names := range terminate {
+		stopAllGivenNames(reg, names)
+	}
+}
+
+func stopAllGivenNames(reg *registry, names []string) {
+	for _, name := range names {
+		log.WithField("prefix", "processor").Warn(name)
+		p, status := reg.getProcess(name)
+		switch status {
+		case "ready":
+			reg.updateStatus(p, "stopped")
+		case "running":
+			stop(reg, p)
+		case "stopped":
+			// nothing to do here
 		}
 	}
 }
 
-func kill(reg *registry, p *process) {
-	p.kill()
+func stop(reg *registry, p *process) {
+	p.stop()
 	reg.updateStatus(p, "stopped")
 }
 
