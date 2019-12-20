@@ -48,7 +48,7 @@ services:
     pwd: $GOPATH/src/github.com/mdouchement/machnery-app
     command: go run app.go worker -c 5
 
-  machinery:
+  random_shell_script:
     pwd: /tmp
     command: |
       for i in 0 1 2 3 4 5 6 7 8 9
