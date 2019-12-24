@@ -1,39 +1,56 @@
 package main
 
-import prefixer "github.com/x-cray/logrus-prefixed-formatter"
+import (
+	"io"
 
-const (
-	ERROR = iota
-	WARN
-	INFO
-	DEBUG
+	"github.com/mdouchement/nregexp"
 )
 
-type lentry struct {
-	Name     string
-	Severity int
-	Message  string
+// ----------------
+// -------------
+// Logging
+// -----
+// ---
+
+type logger struct {
+	w    io.Writer
+	trim *nregexp.NRegexp
 }
 
-var lentries chan *lentry
+func (l *logger) Write(p []byte) (int, error) {
+	p = l.extractMessage(p)
+	return l.w.Write(p)
+}
 
-func startLogger() {
-	log.Formatter = new(prefixer.TextFormatter)
-
-	// Processes logger initialization
-	lentries = make(chan *lentry, cfg.Logger.BufferSize)
-	go func() {
-		for entry := range lentries {
-			switch entry.Severity {
-			case DEBUG:
-				log.WithField("prefix", entry.Name).Debug(entry.Message)
-			case INFO:
-				log.WithField("prefix", entry.Name).Info(entry.Message)
-			case WARN:
-				log.WithField("prefix", entry.Name).Warn(entry.Message)
-			case ERROR:
-				log.WithField("prefix", entry.Name).Error(entry.Message)
-			}
+func (l *logger) extractMessage(msg []byte) []byte {
+	if l.trim != nil {
+		match := l.trim.NamedCapture(msg)
+		if m, ok := match["message"]; ok {
+			return m
 		}
-	}()
+
+		return append([]byte("[!] "), msg...)
+	}
+
+	return msg
+}
+
+// ----------------
+// -------------
+// /dev/null
+// -----
+// ---
+
+type devNull struct{}
+
+func (devNull) Read(p []byte) (int, error) {
+	return 0, io.EOF
+}
+
+func (devNull) Write(p []byte) (int, error) {
+	return len(p), nil
+}
+
+func (devNull) Close() error {
+	return nil
 }

@@ -2,79 +2,92 @@ package main
 
 import (
 	"sync"
+
+	"github.com/sirupsen/logrus"
 )
 
-var errors chan error
-var terminate chan []string
+type processor struct {
+	log         *logrus.Logger
+	errors      chan error
+	terminate   chan []string
+	reg         *registry
+	termination bool
+}
 
-func perform(reg *registry) {
-	padding := getPadding(reg)
-	terminate = make(chan []string, len(reg.processes()))
-	errors = make(chan error, len(reg.processes()))
-	go terminator(reg)
-	go handleErrors(reg)
+func (p *processor) perform() error {
+	go p.terminator()
+	go p.handleErrors()
 
+	padding := p.getPadding()
 	var n sync.WaitGroup
-	for _, p := range reg.readyProcesses() {
-		p.Padding = padding
+
+	for _, proc := range p.reg.readyProcesses() {
+		proc.Padding = padding
 
 		n.Add(1)
-		go func(p *process) {
+		go func(proc *process) {
 			defer n.Done()
-			p.wait()
-			reg.updateStatus(p, "running")
-			err := p.run()
-			if !p.IgnoreError && err != nil && !(err.Error() == "signal: killed" && reg.isAllowedToBeKilled(p.Name)) {
-				errors <- err
+			proc.wait()
+			p.reg.updateStatus(proc, "running")
+			err := proc.run()
+			if !proc.IgnoreError && err != nil && !p.reg.isAllowedToBeKilled(proc.Name) {
+				p.errors <- err
 			}
-			close(p.Done)
-			reg.updateStatus(p, "stopped")
-			terminate <- p.wantedDeadOrDead()
-		}(p)
+			close(proc.Done)
+			p.reg.updateStatus(proc, "stopped")
+			p.terminate <- proc.wantedDeadOrDead()
+		}(proc)
 	}
 	n.Wait()
+
+	return nil
 }
 
-func handleErrors(reg *registry) {
-	for err := range errors {
+func (p *processor) handleErrors() {
+	for err := range p.errors {
 		if err != nil {
-			log.WithField("prefix", "processor").Errorf("%s ; %#v", err.Error(), err)
-			for _, p := range reg.runningProcesses() {
-				kill(reg, p)
+			if p.termination {
+				continue // Already in termination state
 			}
-			fail(err.Error())
-		}
-	}
-}
+			p.termination = true
 
-func terminator(reg *registry) {
-	for {
-		select {
-		case names := <-terminate:
-			for _, name := range names {
-				log.WithField("prefix", "processor").Warn(name)
-				p, status := reg.getProcess(name)
-				switch status {
-				case "ready":
-					reg.updateStatus(p, "stopped")
-				case "running":
-					kill(reg, p)
-				case "stopped":
-					// nothing to do here
-				}
+			p.log.WithField("prefix", "processor").Errorf("%s ; %#v", err.Error(), err)
+			for _, process := range p.reg.runningProcesses() {
+				p.stop(process)
 			}
 		}
 	}
 }
 
-func kill(reg *registry, p *process) {
-	p.kill()
-	reg.updateStatus(p, "stopped")
+func (p *processor) terminator() {
+	for names := range p.terminate {
+		p.stopAllGivenNames(names)
+	}
 }
 
-func getPadding(reg *registry) int {
+func (p *processor) stopAllGivenNames(names []string) {
+	for _, name := range names {
+		p.log.WithField("prefix", "processor").Warn(name)
+		process, status := p.reg.getProcess(name)
+		switch status {
+		case "ready":
+			p.reg.updateStatus(process, "stopped")
+		case "running":
+			p.stop(process)
+		case "stopped":
+			// nothing to do here
+		}
+	}
+}
+
+func (p *processor) stop(process *process) {
+	process.stop()
+	p.reg.updateStatus(process, "stopped")
+}
+
+func (p *processor) getPadding() int {
 	var length int
-	for _, process := range reg.processes() {
+	for _, process := range p.reg.processes() {
 		if l := len(process.Name); l > length {
 			length = l
 		}

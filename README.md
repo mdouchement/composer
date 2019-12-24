@@ -4,7 +4,7 @@ Composer is CLI software for managing processes in development environment.
 
 ## Requirements
 
-- Golang 1.6.x
+- Golang 1.13.x
 
 ## Installation
 
@@ -12,16 +12,12 @@ Composer is CLI software for managing processes in development environment.
 
 ### Manual build
 
-1. Install Go 1.6+
-2. Install Golang's dependency manager
-  - `curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh`
-3. Clone this project
+1. Install Go 1.13+
+2. Clone this project
   - `git clone https://github.com/mdouchement/composer`
-4. Fetch dependencies
-  - `dep ensure`
-5. Build the binary
+3. Build the binary
   - `go build -o composer *.go`
-6. Install the compiled binary
+4. Install the compiled binary
   - `mv composer /usr/bin/composer`
 
 ## Usage
@@ -31,6 +27,8 @@ $ composer start -c ~/server-stack.yml
 ```
 
 ## Configuration file
+
+`command` is interpreted as shell script.
 
 - Basic
 
@@ -49,16 +47,19 @@ services:
   machinery:
     pwd: $GOPATH/src/github.com/mdouchement/machnery-app
     command: go run app.go worker -c 5
+
+  random_shell_script:
+    pwd: /tmp
+    command: |
+      for i in 0 1 2 3 4 5 6 7 8 9
+      do
+        echo "Hello $i times"
+      done
 ```
 
 - Full options
 
 ```yml
-settings:
-  logger:
-    buffer_size: 142 # Queue size of entries to be logged.
-    entry_max_size: 865536 # Max length of an entry message. Default 65536 bytes.
-
 services:
   ggpull:
     pwd: /home/$USER/myapp
