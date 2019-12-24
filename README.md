@@ -60,11 +60,6 @@ services:
 - Full options
 
 ```yml
-settings:
-  logger:
-    buffer_size: 142 # Queue size of entries to be logged.
-    entry_max_size: 865536 # Max length of an entry message. Default 65536 bytes.
-
 services:
   ggpull:
     pwd: /home/$USER/myapp
