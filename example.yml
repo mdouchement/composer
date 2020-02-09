@@ -9,6 +9,8 @@ services:
         - git_pull
     pwd: /home/$USER/myapp
     command: bundle exec rails s
+    reload:
+      - '*.rb' # All Ruby file changes will trig a reload (.gitignore syntax)
     log_trim_pattern: '\[.*\] \w+  (?P<message>.*)'
     environment:
       TOTO: yolo

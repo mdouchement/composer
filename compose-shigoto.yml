@@ -1,0 +1,7 @@
+services:
+  standardfile:
+    pwd: /Users/fragan/workspaces/gomodules/shigoto
+    command: rm /tmp/shigoto.sock ; go run cmd/shigoto/main.go daemon -c /Users/fragan/tmp/shigoto.toml
+    reload:
+      - '*.go'
+

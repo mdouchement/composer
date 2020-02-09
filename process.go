@@ -20,6 +20,7 @@ type process struct {
 	Hooks          map[string][]string `yaml:"hooks"`
 	Pwd            string              `yaml:"pwd"`
 	Command        string              `yaml:"command"`
+	Reload         []string            `yaml:"reload"`
 	Environment    map[string]string   `yaml:"environment"`
 	Logger         *logrus.Entry
 	LogTrimPattern string `yaml:"log_trim_pattern"`
@@ -96,6 +97,13 @@ func (p *process) run() error {
 	}
 
 	//
+
+	watcher, err := newWatcher(workdir, p.Reload)
+	if err != nil {
+		return err
+	}
+
+	//
 	//
 
 	shell, err := interp.New(
@@ -117,7 +125,34 @@ func (p *process) run() error {
 
 	ctx := context.Background()
 	ctx, p.Cancel = context.WithCancel(ctx)
-	return shell.Run(ctx, command)
+
+	//
+
+	errCh := make(chan error)
+	run := func(ctx context.Context) {
+		go func() {
+			errCh <- shell.Run(ctx, command)
+		}()
+	}
+
+	current, reload := context.WithCancel(ctx)
+	run(current)
+	for {
+
+		select {
+		case err = <-errCh:
+			reload() // The stop already spreaded by parrent context (make go vet happy)
+			return err
+		case <-watcher.watch():
+			p.Logger.WithField("prefix", "composer").Infof("Reloading %s", p.Name)
+			reload()
+			current, reload = context.WithCancel(ctx)
+			run(current)
+		case <-ctx.Done():
+			reload() // The stop already spreaded by parrent context (make go vet happy)
+			return nil
+		}
+	}
 }
 
 func (p *process) wantedDeadOrDead() []string {
