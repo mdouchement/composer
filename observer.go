@@ -1,7 +1,7 @@
 package main
 
 type publisher interface {
-	publish(value interface{})
+	publish(value any)
 }
 
 type observer interface {

@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
+	"slices"
 	"strings"
-	"time"
+	"sync"
 
-	"github.com/mdouchement/nregexp"
-	"github.com/sirupsen/logrus"
+	"github.com/mdouchement/upathex"
 	"mvdan.cc/sh/v3/expand"
 	"mvdan.cc/sh/v3/interp"
 	"mvdan.cc/sh/v3/syntax"
@@ -17,24 +18,26 @@ import (
 
 type process struct {
 	Name           string
+	PaddedName     string
 	Hooks          map[string][]string `yaml:"hooks"`
 	Pwd            string              `yaml:"pwd"`
 	Command        string              `yaml:"command"`
 	Environment    map[string]string   `yaml:"environment"`
-	Logger         *logrus.Entry
+	Logger         *logger
 	LogTrimPattern string `yaml:"log_trim_pattern"`
 	IgnoreError    bool   `yaml:"ignore_error"`
-	Padding        int
 	Cancel         context.CancelFunc
 	Done           chan struct{}
 
-	homedir string
+	mu          sync.Mutex
+	waiting     context.Context
+	doneWaiting func()
+	homedir     string
 }
 
-// TODO: try to block without using loop + sleep
 func (p *process) wait() {
-	for len(p.Hooks["wait"]) != 0 {
-		time.Sleep(1 * time.Second)
+	if p.waiting != nil {
+		<-p.waiting.Done()
 	}
 }
 
@@ -43,25 +46,26 @@ func (p *process) update(status map[string][]string) {
 		for i, name := range p.Hooks["wait"] {
 			if name == processName {
 				// delete any stopped process from waiting list
-				p.Hooks["wait"] = append(p.Hooks["wait"][:i], p.Hooks["wait"][i+1:]...)
+				p.Hooks["wait"] = slices.Delete(p.Hooks["wait"], i, i+1)
 			}
 		}
 	}
+
+	if len(p.Hooks["wait"]) == 0 && p.doneWaiting != nil {
+		p.doneWaiting()
+	}
 }
 
-func (p *process) run() error {
-	logout := &logger{
-		w: p.Logger.WithField("prefix", p.paddedName()).WriterLevel(logrus.InfoLevel),
-	}
-	logerr := &logger{
-		w: p.Logger.WithField("prefix", p.paddedName()).WriterLevel(logrus.WarnLevel),
-	}
+func (p *process) run(ctx context.Context) error {
+	logout := p.Logger.WithPrefixName(p.PaddedName).Stdout()
+	logerr := p.Logger.WithPrefixName(p.PaddedName).Stderr()
 
 	if p.LogTrimPattern != "" {
-		trim, err := nregexp.Compile(p.LogTrimPattern)
+		trim, err := regexp.Compile(p.LogTrimPattern)
 		if err != nil {
 			return err
 		}
+
 		logout.trim = trim
 		logerr.trim = trim
 	}
@@ -80,13 +84,13 @@ func (p *process) run() error {
 		workdir = p.Pwd
 	}
 
-	workdir = os.Expand(workdir, func(k string) string {
-		if e, ok := p.Environment[k]; ok {
-			return e
-		}
-		return fmt.Sprintf("${%s}", k)
-	})
-	workdir = os.ExpandEnv(workdir)
+	workdir = upathex.ExpandEnvWithCustom(workdir, p.Environment)
+
+	var err error
+	workdir, err = upathex.ExpandTilde(workdir)
+	if err != nil {
+		return err
+	}
 
 	//
 
@@ -115,8 +119,10 @@ func (p *process) run() error {
 		return err
 	}
 
-	ctx := context.Background()
+	p.mu.Lock()
 	ctx, p.Cancel = context.WithCancel(ctx)
+	p.mu.Unlock()
+
 	return shell.Run(ctx, command)
 }
 
@@ -126,19 +132,11 @@ func (p *process) wantedDeadOrDead() []string {
 
 // stop terminates the underlying process whether it is started
 func (p *process) stop() {
-	// TODO: An inconsistency window can occur between existence check and kill action
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	if p.Cancel != nil {
 		p.Cancel()
-		p.Logger.WithField("prefix", p.paddedName()).Warn("stopped by Composer")
-	}
-}
-
-func (p *process) paddedName() string {
-	name := p.Name
-	for {
-		if len(name) == p.Padding {
-			return name
-		}
-		name = " " + name
+		p.Logger.WithPrefixName(p.PaddedName).Warn("stopped by Composer")
 	}
 }

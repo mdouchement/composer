@@ -1,35 +1,38 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"sync"
-
-	"github.com/sirupsen/logrus"
 )
 
 type processor struct {
-	log         *logrus.Logger
-	errors      chan error
-	terminate   chan []string
-	reg         *registry
+	log       *logger
+	errors    chan error
+	terminate chan []string
+	reg       *registry
+
+	m           sync.Mutex
 	termination bool
 }
 
-func (p *processor) perform() error {
+func (p *processor) perform(ctx context.Context) {
 	go p.terminator()
 	go p.handleErrors()
 
-	padding := p.getPadding()
+	template := fmt.Sprintf("%%%ds", p.getPadding())
 	var n sync.WaitGroup
 
 	for _, proc := range p.reg.readyProcesses() {
-		proc.Padding = padding
+		proc.PaddedName = fmt.Sprintf(template, proc.Name)
 
 		n.Add(1)
 		go func(proc *process) {
 			defer n.Done()
+
 			proc.wait()
 			p.reg.updateStatus(proc, "running")
-			err := proc.run()
+			err := proc.run(ctx)
 			if !proc.IgnoreError && err != nil && !p.reg.isAllowedToBeKilled(proc.Name) {
 				p.errors <- err
 			}
@@ -38,24 +41,28 @@ func (p *processor) perform() error {
 			p.terminate <- proc.wantedDeadOrDead()
 		}(proc)
 	}
-	n.Wait()
 
-	return nil
+	n.Wait()
 }
 
 func (p *processor) handleErrors() {
-	for err := range p.errors {
-		if err != nil {
-			if p.termination {
-				continue // Already in termination state
-			}
-			p.termination = true
+	var termination bool
 
-			p.log.WithField("prefix", "processor").Errorf("%s ; %#v", err.Error(), err)
-			for _, process := range p.reg.runningProcesses() {
-				p.stop(process)
-			}
+	for err := range p.errors {
+		if err == nil {
+			continue
 		}
+
+		if termination {
+			continue
+		}
+
+		if err != context.Canceled {
+			p.log.WithPrefixName("processor").Error(fmt.Sprintf("%s ; %#v", err.Error(), err))
+		}
+
+		p.shutdown()
+		termination = true
 	}
 }
 
@@ -67,7 +74,7 @@ func (p *processor) terminator() {
 
 func (p *processor) stopAllGivenNames(names []string) {
 	for _, name := range names {
-		p.log.WithField("prefix", "processor").Warn(name)
+		p.log.WithPrefixName("processor").Warn(name)
 		process, status := p.reg.getProcess(name)
 		switch status {
 		case "ready":
@@ -77,6 +84,27 @@ func (p *processor) stopAllGivenNames(names []string) {
 		case "stopped":
 			// nothing to do here
 		}
+	}
+}
+
+func (p *processor) shutdown() {
+	p.m.Lock()
+	defer p.m.Unlock()
+
+	if p.termination {
+		return // Already in termination state
+	}
+
+	p.log.WithPrefixName("processor").Info("Gracefully shutdown composer")
+	p.termination = true
+	defer p.reg.shutdown()
+
+	for _, process := range p.reg.readyProcesses() {
+		p.stop(process)
+	}
+
+	for _, process := range p.reg.runningProcesses() {
+		p.stop(process)
 	}
 }
 
