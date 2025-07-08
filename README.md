@@ -2,21 +2,21 @@
 
 Composer is CLI software for managing processes in development environment.
 
-## Requirements
-
-- Golang 1.13.x
-
 ## Installation
 
 - Download it from [releases](https://github.com/mdouchement/composer/releases) page.
 
 ### Manual build
 
-1. Install Go 1.13+
+`go install github.com/mdouchement/composer@latest`
+
+or
+
+1. Install Go 1.24+
 2. Clone this project
   - `git clone https://github.com/mdouchement/composer`
 3. Build the binary
-  - `go build -o composer *.go`
+  - `go build -o composer .`
 4. Install the compiled binary
   - `mv composer /usr/bin/composer`
 
@@ -88,25 +88,31 @@ services:
 
 ### Trim logs
 
-Outputed logs can be trimed to remove useless data like timestamp. This option is based on the Golang's [regexp](https://golang.org/pkg/regexp/) package and you can test your regexp with the following website [Regex Tester - Golang](https://regex-golang.appspot.com/assets/html/index.html).
+Outputed logs can be trimed to remove useless data like timestamp. This option is based on the Golang's [regexp](https://golang.org/pkg/regexp/) package and you can test your regexp with the following website [regex101 with Golang flavor](https://regex101.com).
 
-The captured group must be named `message` like the following example:
+All the captured groups are printed by composer like the following example:
 
 ```
-log_trim_pattern: '\[.*\] \w+  (?P<message>.*)'
+log_trim_pattern: '\[[^]]+\] \w+ (.*)'
 ```
 
 The result is the following:
 
 ```
 # Without trim:
-[Feb 13 10:38:09]  INFO my_app: [2017-02-13 10:38:09] INFO  WEBrick 1.3.1
+my_app: [2017-02-13 10:38:09] INFO  WEBrick 1.3.1
 
 # With trim:
-[Feb 13 10:38:09]  INFO my_app: WEBrick 1.3.1
+my_app: WEBrick 1.3.1
+```
+> Nothing happens if the regex is invalid.\
+> If the logs are colored you have to add ANSI colors like `\x1B[32m INFO \x1B[0m` in your regexp escaped as `log_trim_pattern: "\x1B\\[32m INFO \x1B\\[0m"`.
 
-# When the trim regexp does not match, the message is prefixed with `[!]`
-[Feb 13 10:38:09]  INFO my_app: [!] => Booting WEBrick
+You can add a composer log file in order to see the ANSI colors escape sequences:
+
+```yaml
+settings:
+  log_file: composer.log
 ```
 
 ## License

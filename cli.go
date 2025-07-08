@@ -1,18 +1,17 @@
 package main
 
 import (
-	"bufio"
-	"io/ioutil"
+	"context"
+	"io"
 	"os"
 	"os/signal"
 
 	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
 
-func command(log *logrus.Logger, homedir string) *cobra.Command {
+func command(log *logger, homedir string) *cobra.Command {
 	var config string
 	parser := &parser{
 		log:     log,
@@ -23,10 +22,20 @@ func command(log *logrus.Logger, homedir string) *cobra.Command {
 		Use:   "start",
 		Short: "Start all processes",
 		Args:  cobra.NoArgs,
-		RunE: func(c *cobra.Command, _ []string) (err error) {
-			registry, err := parser.parseConfig(config)
+		RunE: func(c *cobra.Command, _ []string) error {
+			settings, registry, err := parser.parseConfig(config)
 			if err != nil {
 				return err
+			}
+
+			if settings.LogFile != "" {
+				f, err := os.OpenFile(settings.LogFile, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0o600)
+				if err != nil {
+					return err
+				}
+				defer f.Close()
+
+				log.w = f
 			}
 
 			runner := &processor{
@@ -35,24 +44,17 @@ func command(log *logrus.Logger, homedir string) *cobra.Command {
 				terminate: make(chan []string, len(registry.processes())),
 				errors:    make(chan error, len(registry.processes())),
 			}
+			defer runner.shutdown()
 
-			//
+			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 
-			signals := make(chan os.Signal, 1)
-			signal.Notify(signals, os.Interrupt)
 			go func() {
-				<-signals
-				log.Info("Gracefully shutdown composer")
-
-				runner.termination = true
-				for _, process := range registry.processes() {
-					runner.stop(process)
-				}
+				runner.perform(ctx)
+				stop()
 			}()
 
-			//
-
-			return runner.perform()
+			<-ctx.Done()
+			return nil
 		},
 	}
 	command.Flags().StringVarP(&config, "config", "c", "", "Configuration file")
@@ -67,72 +69,71 @@ func command(log *logrus.Logger, homedir string) *cobra.Command {
 // ---
 
 type parser struct {
-	log     *logrus.Logger
+	log     *logger
 	homedir string
 }
 
-func (ps *parser) parseConfig(path string) (*registry, error) {
+type settings struct {
+	LogFile string `yaml:"log_file"`
+}
+
+func (ps *parser) parseConfig(path string) (*settings, *registry, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer file.Close()
 
-	data, err := ioutil.ReadAll(file)
+	data, err := io.ReadAll(file)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	raw := make(map[string]interface{})
+	raw := make(map[string]any)
 	err = yaml.Unmarshal(data, &raw)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	// No longer used for the moment
-	//
-	// cfg, err := ps.parseSettings(raw["settings"])
-	// if err != nil {
-	// 	return nil, err
-	// }
+	settings, err := ps.parseSettings(raw["settings"])
+	if err != nil {
+		return nil, nil, err
+	}
 
 	reg := newRegistry()
-	reg.log = ps.log
 	services, err := ps.parseServices(raw["services"])
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	for name, p := range services {
 		p.Name = name
 		p.Done = make(chan struct{})
-		p.Logger = logrus.NewEntry(ps.log)
+		p.Logger = ps.log
+		if len(p.Hooks["wait"]) != 0 {
+			p.waiting, p.doneWaiting = context.WithCancel(context.Background())
+		}
 		p.homedir = ps.homedir
 		reg.register(p)
 	}
 
-	return reg, nil
+	return settings, reg, nil
 }
 
-func (ps *parser) parseSettings(value interface{}) (*configuration, error) {
+func (ps *parser) parseSettings(value any) (*settings, error) {
 	raw, err := yaml.Marshal(value)
 	if err != nil {
 		return nil, errors.Wrap(err, "could not serialize settings")
 	}
 
 	// defaults
-	cfg := configuration{
-		Logger: logConfiguration{
-			BufferSize:   42,
-			EntryMaxSize: bufio.MaxScanTokenSize,
-		},
-	}
+	cfg := settings{}
 
 	err = yaml.Unmarshal(raw, &cfg)
 	return &cfg, errors.Wrap(err, "could not parse settings")
 }
 
-func (ps *parser) parseServices(value interface{}) (map[string]*process, error) {
+func (ps *parser) parseServices(value any) (map[string]*process, error) {
 	raw, err := yaml.Marshal(value)
 	if err != nil {
 		return nil, errors.Wrap(err, "could not serialize services")

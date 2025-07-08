@@ -1,10 +1,8 @@
 package main
 
 import (
+	"slices"
 	"sync"
-
-	mapset "github.com/deckarep/golang-set"
-	"github.com/sirupsen/logrus"
 )
 
 type registry struct {
@@ -13,9 +11,7 @@ type registry struct {
 	ready         map[string]*process
 	running       map[string]*process
 	stopped       map[string]*process
-	licenseToKill mapset.Set
-
-	log *logrus.Logger
+	licenseToKill []string
 }
 
 func newRegistry() *registry {
@@ -23,7 +19,7 @@ func newRegistry() *registry {
 		ready:         make(map[string]*process),
 		running:       make(map[string]*process),
 		stopped:       make(map[string]*process),
-		licenseToKill: mapset.NewSet(),
+		licenseToKill: make([]string, 0, 50),
 	}
 }
 
@@ -34,9 +30,7 @@ func (r *registry) register(p *process) {
 	defer r.Unlock()
 
 	r.ready[p.Name] = p
-	for _, pname := range p.Hooks["kill"] {
-		r.licenseToKill.Add(pname)
-	}
+	r.licenseToKill = append(r.licenseToKill, p.Hooks["kill"]...)
 }
 
 func (r *registry) updateStatus(p *process, status string) {
@@ -54,7 +48,6 @@ func (r *registry) updateStatus(p *process, status string) {
 	r.Unlock()
 
 	r.publish(r.status())
-	r.log.WithField("prefix", "registry").Debug(r.status())
 }
 
 func (r *registry) status() map[string][]string {
@@ -71,10 +64,7 @@ func (r *registry) status() map[string][]string {
 	for name := range r.stopped {
 		status["stopped"] = append(status["stopped"], name)
 	}
-	for _, name := range r.licenseToKill.ToSlice() {
-		n := name.(string)
-		status["license_to_kill"] = append(status["license_to_kill"], n)
-	}
+	status["license_to_kill"] = append(status["license_to_kill"], r.licenseToKill...)
 
 	return status
 }
@@ -82,7 +72,8 @@ func (r *registry) status() map[string][]string {
 func (r *registry) isAllowedToBeKilled(name string) bool {
 	r.RLock()
 	defer r.RUnlock()
-	return r.licenseToKill.Contains(name)
+
+	return slices.Contains(r.licenseToKill, name)
 }
 
 func (r *registry) getProcess(name string) (*process, string) {
@@ -102,6 +93,20 @@ func (r *registry) getProcess(name string) (*process, string) {
 func (r *registry) processes() []*process {
 	ps := append(r.readyProcesses(), r.runningProcesses()...)
 	return append(ps, r.stoppedProcesses()...)
+}
+
+func (r *registry) shutdown() {
+	r.Lock()
+	defer r.Unlock()
+
+	// Avoid ready process to start
+	for name := range r.ready {
+		delete(r.ready, name)
+	}
+
+	for _, process := range r.running {
+		process.stop()
+	}
 }
 
 func (r *registry) readyProcesses() []*process {
@@ -134,5 +139,6 @@ func (r *registry) stoppedProcesses() []*process {
 	for _, process := range r.stopped {
 		ps = append(ps, process)
 	}
+
 	return ps
 }
