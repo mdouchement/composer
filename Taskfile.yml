@@ -4,7 +4,7 @@
 version: '3'
 
 vars:
-  VERSION: 0.5.0
+  VERSION: 0.5.1
   REVISION: { sh: git rev-parse HEAD }
 
 env:
@@ -52,6 +52,16 @@ tasks:
       - task: checksum
         vars:
           BINARY_NAME: composer-darwin-amd64
+
+      - task: build
+        vars:
+          BINARY_NAME: composer-darwin-arm64
+          ENTRYPOINT: .
+          TARGET_DIST: GOOS=darwin GOARCH=arm64
+
+      - task: checksum
+        vars:
+          BINARY_NAME: composer-darwin-arm64
 
       - task: build
         vars:
